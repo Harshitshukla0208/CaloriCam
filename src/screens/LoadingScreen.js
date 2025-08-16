@@ -1,18 +1,18 @@
 import React from "react";
-import { View, Text, ActivityIndicator, StyleSheet, Image } from "react-native";
+import { View, Text, ActivityIndicator, StyleSheet, Image, SafeAreaView } from "react-native";
 
 export default function LoadingScreen() {
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Image
-        source={require("../../assets/icon.png")}
+        source={require("../../assets/fast-food.png")}
         style={styles.logo}
         resizeMode="contain"
       />
       <Text style={styles.appName}>CaloriCam</Text>
       <ActivityIndicator size="large" color="white" style={styles.loader} />
       <Text style={styles.loadingText}>Loading...</Text>
-    </View>
+    </SafeAreaView>
   );
 }
 

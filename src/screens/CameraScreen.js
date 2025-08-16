@@ -12,6 +12,8 @@ import {
   TextInput,
   StatusBar,
   Dimensions,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useFocusEffect } from "@react-navigation/native";
 import { auth } from "../config/firebase";
-import { analyzeFood } from "../config/gemini";
+import { analyzeFood, analyzeFoodByName } from "../config/gemini";
 import { saveFoodEntry } from "../services/database";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -136,10 +138,11 @@ export default function CameraScreen() {
     }
   };
 
-  const saveEntry = async () => {
+  // Fixed saveEntry to handle both original and manual results
+  const saveEntry = async (dataToSave = analysisResult) => {
     try {
       setLoading(true);
-      await saveFoodEntry(auth.currentUser.uid, analysisResult);
+      await saveFoodEntry(auth.currentUser.uid, dataToSave);
       Alert.alert("Success", "Food entry saved successfully!");
       setShowResult(false);
       setAnalysisResult(null);
@@ -175,19 +178,21 @@ export default function CameraScreen() {
   if (!permission) {
     // Camera permissions are still loading
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#4F46E5" translucent={false} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#4F46E5" />
           <Text style={styles.loadingText}>Loading camera...</Text>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!permission.granted) {
     // Camera permissions are not granted yet
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#4F46E5" translucent={false} />
         <View style={styles.permissionContainer}>
           <Ionicons name="camera-outline" size={80} color="#4F46E5" />
           <Text style={styles.noPermissionText}>
@@ -200,13 +205,13 @@ export default function CameraScreen() {
             <Text style={styles.permissionButtonText}>Grant Permission</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#4F46E5" />
+      <StatusBar barStyle="light-content" backgroundColor="#4F46E5" translucent={false} />
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>CaloriCam</Text>
@@ -278,34 +283,67 @@ export default function CameraScreen() {
       <ResultModal
         visible={showResult}
         result={analysisResult}
-        onSave={saveEntry}
+        onSave={saveEntry} // Updated to use the fixed saveEntry
         onEdit={editAndSave}
         onClose={() => setShowResult(false)}
         loading={loading}
+        location={location}
       />
     </SafeAreaView>
   );
 }
 
-function ResultModal({ visible, result, onSave, onEdit, onClose, loading }) {
+// Updated ResultModal with all fixes
+function ResultModal({ visible, result, onSave, onEdit, onClose, loading, location }) {
   const [editing, setEditing] = useState(false);
   const [editedResult, setEditedResult] = useState(null);
+  const [manualName, setManualName] = useState("");
+  const [manualLoading, setManualLoading] = useState(false);
+  const [manualError, setManualError] = useState("");
+  const [manualResult, setManualResult] = useState(null);
 
   useEffect(() => {
     if (result) {
       setEditedResult({ ...result });
+      setManualName("");
+      setManualError("");
+      setManualResult(null);
     }
   }, [result]);
 
+  const displayResult = manualResult || result;
+  const currentEditedResult = manualResult ? { ...manualResult } : editedResult;
+
   const handleEdit = () => {
-    onEdit(editedResult);
+    onEdit(currentEditedResult);
   };
 
   const resetEditing = () => {
     setEditing(false);
-    if (result) {
-      setEditedResult({ ...result });
+    if (displayResult) {
+      setEditedResult({ ...displayResult });
     }
+  };
+
+  const handleManualAnalyze = async () => {
+    if (!manualName.trim()) return;
+    setManualLoading(true);
+    setManualError("");
+    try {
+      const newResult = await analyzeFoodByName(manualName, location);
+      setManualResult(newResult);
+      setEditedResult({ ...newResult });
+      setManualError("");
+      setEditing(false);
+    } catch (err) {
+      setManualError(err.message || "Failed to analyze food name.");
+    } finally {
+      setManualLoading(false);
+    }
+  };
+
+  const handleSave = () => {
+    onSave(manualResult || result);
   };
 
   if (!result) return null;
@@ -317,163 +355,207 @@ function ResultModal({ visible, result, onSave, onEdit, onClose, loading }) {
       presentationStyle="pageSheet"
     >
       <SafeAreaView style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Food Analysis Result</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color="#4F46E5" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          style={styles.modalContent}
-          showsVerticalScrollIndicator={false}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         >
-          <View style={styles.resultCard}>
-            <Text style={styles.foodName}>
-              {editing ? (
-                <TextInput
-                  style={styles.editInput}
-                  value={editedResult.foodName}
-                  onChangeText={(text) =>
-                    setEditedResult({ ...editedResult, foodName: text })
-                  }
-                  placeholder="Food name"
-                />
-              ) : (
-                result.foodName
-              )}
-            </Text>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Food Analysis Result</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#4F46E5" />
+            </TouchableOpacity>
+          </View>
 
-            <View style={styles.nutritionGrid}>
-              <NutritionItem
-                label="Calories"
-                value={editing ? editedResult.calories : result.calories}
-                unit="kcal"
-                editing={editing}
-                onEdit={(value) =>
-                  setEditedResult({
-                    ...editedResult,
-                    calories: parseInt(value) || 0,
-                  })
-                }
-              />
-              <NutritionItem
-                label="Protein"
-                value={editing ? editedResult.protein : result.protein}
-                unit="g"
-                editing={editing}
-                onEdit={(value) =>
-                  setEditedResult({
-                    ...editedResult,
-                    protein: parseFloat(value) || 0,
-                  })
-                }
-              />
-              <NutritionItem
-                label="Carbs"
-                value={editing ? editedResult.carbs : result.carbs}
-                unit="g"
-                editing={editing}
-                onEdit={(value) =>
-                  setEditedResult({
-                    ...editedResult,
-                    carbs: parseFloat(value) || 0,
-                  })
-                }
-              />
-              <NutritionItem
-                label="Fat"
-                value={editing ? editedResult.fat : result.fat}
-                unit="g"
-                editing={editing}
-                onEdit={(value) =>
-                  setEditedResult({
-                    ...editedResult,
-                    fat: parseFloat(value) || 0,
-                  })
-                }
-              />
+          <ScrollView
+            style={styles.modalContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 20 }}
+          >
+            <View style={styles.resultCard}>
+              <Text style={styles.foodName}>
+                {editing ? (
+                  <TextInput
+                    style={styles.editInput}
+                    value={currentEditedResult.foodName}
+                    onChangeText={(text) =>
+                      setEditedResult({ ...currentEditedResult, foodName: text })
+                    }
+                    placeholder="Food name"
+                  />
+                ) : (
+                  displayResult.foodName
+                )}
+              </Text>
+
+              <View style={styles.nutritionGrid}>
+                <NutritionItem
+                  label="Calories"
+                  value={editing ? currentEditedResult.calories : displayResult.calories}
+                  unit="kcal"
+                  editing={editing}
+                  onEdit={(value) =>
+                    setEditedResult({
+                      ...currentEditedResult,
+                      calories: parseInt(value) || 0,
+                    })
+                  }
+                />
+                <NutritionItem
+                  label="Protein"
+                  value={editing ? currentEditedResult.protein : displayResult.protein}
+                  unit="g"
+                  editing={editing}
+                  onEdit={(value) =>
+                    setEditedResult({
+                      ...currentEditedResult,
+                      protein: parseFloat(value) || 0,
+                    })
+                  }
+                />
+                <NutritionItem
+                  label="Carbs"
+                  value={editing ? currentEditedResult.carbs : displayResult.carbs}
+                  unit="g"
+                  editing={editing}
+                  onEdit={(value) =>
+                    setEditedResult({
+                      ...currentEditedResult,
+                      carbs: parseFloat(value) || 0,
+                    })
+                  }
+                />
+                <NutritionItem
+                  label="Fat"
+                  value={editing ? currentEditedResult.fat : displayResult.fat}
+                  unit="g"
+                  editing={editing}
+                  onEdit={(value) =>
+                    setEditedResult({
+                      ...currentEditedResult,
+                      fat: parseFloat(value) || 0,
+                    })
+                  }
+                />
+              </View>
+
+              <Text style={styles.servingSize}>
+                Serving Size:{" "}
+                {editing ? (
+                  <TextInput
+                    style={styles.editInput}
+                    value={currentEditedResult.servingSize}
+                    onChangeText={(text) =>
+                      setEditedResult({ ...currentEditedResult, servingSize: text })
+                    }
+                    placeholder="Serving size"
+                  />
+                ) : (
+                  displayResult.servingSize
+                )}
+              </Text>
+
+              <Text style={styles.confidence}>
+                Confidence: {displayResult.confidence}%
+              </Text>
             </View>
 
-            <Text style={styles.servingSize}>
-              Serving Size:{" "}
-              {editing ? (
+            {/* Manual food name input */}
+            <View style={styles.manualInputContainer}>
+              <Text style={styles.manualInputLabel}>
+                Not satisfied? Enter food name manually:
+              </Text>
+              <View style={styles.manualInputRow}>
                 <TextInput
-                  style={styles.editInput}
-                  value={editedResult.servingSize}
-                  onChangeText={(text) =>
-                    setEditedResult({ ...editedResult, servingSize: text })
-                  }
-                  placeholder="Serving size"
+                  style={[styles.editInput, styles.manualInput]}
+                  value={manualName}
+                  onChangeText={setManualName}
+                  placeholder="Type food name..."
+                  editable={!manualLoading}
+                  returnKeyType="search"
+                  onSubmitEditing={handleManualAnalyze}
                 />
-              ) : (
-                result.servingSize
-              )}
-            </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    styles.searchButton,
+                    manualLoading && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleManualAnalyze}
+                  disabled={manualLoading || !manualName.trim()}
+                >
+                  {manualLoading ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Ionicons name="search" size={20} color="white" />
+                  )}
+                </TouchableOpacity>
+              </View>
+              {manualError ? (
+                <Text style={styles.errorText}>{manualError}</Text>
+              ) : null}
+            </View>
+          </ScrollView>
 
-            <Text style={styles.confidence}>
-              Confidence: {result.confidence}%
-            </Text>
+          <View style={styles.modalActions}>
+            {!editing ? (
+              <>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => setEditing(true)}
+                >
+                  <Ionicons name="create-outline" size={20} color="#4F46E5" />
+                  <Text style={styles.editButtonText}>Edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    loading && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleSave}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={20} color="white" />
+                      <Text style={styles.saveButtonText}>Save Entry</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={resetEditing}
+                >
+                  <Ionicons name="close" size={20} color="white" />
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    loading && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleEdit}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="save-outline" size={20} color="white" />
+                      <Text style={styles.saveButtonText}>Save Changes</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </>
+            )}
           </View>
-        </ScrollView>
-
-        <View style={styles.modalActions}>
-          {!editing ? (
-            <>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => setEditing(true)}
-              >
-                <Ionicons name="create-outline" size={20} color="#4F46E5" />
-                <Text style={styles.editButtonText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.saveButton,
-                  loading && styles.saveButtonDisabled,
-                ]}
-                onPress={onSave}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <>
-                    <Ionicons name="checkmark" size={20} color="white" />
-                    <Text style={styles.saveButtonText}>Save Entry</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={resetEditing}
-              >
-                <Ionicons name="close" size={20} color="white" />
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.saveButton,
-                  loading && styles.saveButtonDisabled,
-                ]}
-                onPress={handleEdit}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <>
-                    <Ionicons name="save-outline" size={20} color="white" />
-                    <Text style={styles.saveButtonText}>Save Changes</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -524,10 +606,11 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingTop: 10,
+    paddingBottom: 15,
     backgroundColor: "#4F46E5",
     alignItems: "center",
-    minHeight: 80,
+    minHeight: 70,
     justifyContent: "center",
   },
   headerTitle: {
@@ -547,7 +630,7 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     borderRadius: 20,
     overflow: "hidden",
-    maxHeight: screenHeight * 0.6,
+    maxHeight: screenHeight * 0.55,
   },
   camera: {
     flex: 1,
@@ -767,6 +850,42 @@ const styles = StyleSheet.create({
     fontSize: Math.min(14, screenWidth * 0.035),
     color: "#6B7280",
     textAlign: "center",
+  },
+  // Manual input styles
+  manualInputContainer: {
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  manualInputLabel: {
+    fontWeight: "bold",
+    fontSize: 16,
+    marginBottom: 8,
+    color: "#4F46E5",
+  },
+  manualInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  manualInput: {
+    flex: 1,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
+  },
+  searchButton: {
+    minWidth: 40,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  errorText: {
+    color: "#EF4444",
+    marginTop: 4,
+    fontSize: 14,
   },
   modalActions: {
     flexDirection: "row",

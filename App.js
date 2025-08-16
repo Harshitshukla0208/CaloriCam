@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { auth } from './src/config/firebase.js';
 import { onAuthStateChanged } from 'firebase/auth';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native';
 
 // Screens
 import LoginScreen from './src/screens/LoginScreen.js';
@@ -66,15 +67,17 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="dark" backgroundColor="#4F46E5" />
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {user ? (
-          <Stack.Screen name="Main" component={TabNavigator} />
-        ) : (
-          <Stack.Screen name="Login" component={LoginScreen} />
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+      <NavigationContainer>
+        <StatusBar style="dark" backgroundColor="#4F46E5" />
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          {user ? (
+            <Stack.Screen name="Main" component={TabNavigator} />
+          ) : (
+            <Stack.Screen name="Login" component={LoginScreen} />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaView>
   );
 }

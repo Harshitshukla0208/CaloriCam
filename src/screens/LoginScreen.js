@@ -7,6 +7,7 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  SafeAreaView,
 } from "react-native";
 import { signInAnonymously } from "firebase/auth";
 import { auth } from "../config/firebase";
@@ -52,10 +53,10 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Image
-          source={require("../../assets/icon.png")}
+          source={require("../../assets/fast-food.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -88,7 +89,7 @@ export default function LoginScreen() {
           No registration required - Start tracking immediately!
         </Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
