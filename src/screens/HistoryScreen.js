@@ -63,11 +63,11 @@ export default function HistoryScreen() {
           setWeeklyHistory(history || {});
           setLastRefresh(Date.now());
 
-          console.log("Real-time data refreshed:", {
-            entriesCount: entries?.length || 0,
-            calories: calories || 0,
-            historyDays: Object.keys(history || {}).length,
-          });
+          // console.log("Real-time data refreshed:", {
+          //   entriesCount: entries?.length || 0,
+          //   calories: calories || 0,
+          //   historyDays: Object.keys(history || {}).length,
+          // });
         } catch (error) {
           console.error("Error loading real-time data:", error);
           Alert.alert("Error", "Failed to load latest data. Please try again.");
